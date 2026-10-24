@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Stress Index — live</title>
+<style>
+  :root {
+    --ground: #0A130F;
+    --panel: #111E18;
+    --panel-hi: #16281F;
+    --text: #DCE7E0;
+    --muted: #879A8F;
+    --gold: #F6C445;
+
+    --calm: #35D07F;
+    --tense: #F6C445;
+    --stressed: #FF8A3D;
+    --meltdown: #FF4438;
+
+    --whoop: #E8482B;
+    --fitbit: #33C6C6;
+    --apple: #C9D2CC;
+
+    --row-h: 104px;
+    --row-gap: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--ground);
+    color: var(--text);
+    font-family: ui-sans-serif, -apple-system, "SF Pro Display", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100%;
+  }
+
+  /* Subtle stadium-floodlight wash so a flat black TV panel doesn't read as "off". */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(120% 80% at 50% -10%, rgba(53, 208, 127, 0.07), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: clamp(16px, 2.5vw, 34px);
+  }
+
+  /* ---------- top bar ---------- */
+  .top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-bottom: clamp(14px, 1.6vw, 22px);
+    border-bottom: 1px solid rgba(135, 154, 143, 0.16);
+    margin-bottom: clamp(16px, 2vw, 26px);
+  }
+
+  .title-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+  h1 {
+    font-size: clamp(20px, 2.4vw, 34px);
+    font-weight: 680;
+    letter-spacing: -0.02em;
+  }
+
+  .live {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: clamp(10px, 0.85vw, 13px);
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--calm);
+    text-transform: uppercase;
+  }
+
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--calm);
+    box-shadow: 0 0 0 0 rgba(53, 208, 127, 0.7);
+    animation: pulse 2s ease-out infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(53, 208, 127, 0.65); }
+    70%  { box-shadow: 0 0 0 11px rgba(53, 208, 127, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(53, 208, 127, 0); }
+  }
+  /* Stale feed: the pulse is a promise the data is moving — stop lying if it isn't. */
+  .live.stale { color: var(--muted); }
+  .live.stale .dot { background: var(--muted); animation: none; }
+
+  .rattled {
+    font-size: clamp(12px, 1.15vw, 17px);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .rattled b {
+    color: var(--gold);
+    font-weight: 660;
+    margin-left: 6px;
+  }
+
+  /* ---------- match strip ---------- */
+  .matchbar {
+    display: flex; align-items: center; gap: clamp(12px, 1.6vw, 22px);
+    background: var(--panel);
+    border: 1px solid rgba(135, 154, 143, 0.14);
+    border-radius: 12px;
+    padding: clamp(9px, 1vw, 13px) clamp(12px, 1.5vw, 18px);
+    margin-bottom: clamp(12px, 1.4vw, 18px);
+  }
+  .matchbar[hidden] { display: none; }
+  .mb-score { display: flex; align-items: center; gap: 8px; flex: none; }
+  .mb-team {
+    font-size: clamp(9px, 0.72vw, 12px); font-weight: 780; letter-spacing: 0.09em;
+    padding: 3px 6px; border-radius: 4px;
+  }
+  .mb-team.eng { background: rgba(57, 135, 229, 0.18); color: #6da7ec; }
+  .mb-team.arg { background: rgba(25, 158, 112, 0.18); color: #35D07F; }
+  .mb-goals {
+    font-size: clamp(15px, 1.5vw, 22px); font-weight: 720;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  }
+  .mb-clock {
+    font-size: clamp(10px, 0.85vw, 13px); font-weight: 680; color: var(--gold);
+    font-variant-numeric: tabular-nums; margin-left: 4px;
+  }
+  .mb-text {
+    flex: 1; min-width: 0;
+    font-size: clamp(12px, 1.15vw, 17px); font-weight: 560; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-left: 1px solid rgba(135, 154, 143, 0.16);
+    padding-left: clamp(12px, 1.6vw, 22px);
+  }
+  /* A new line of commentary flashes gold — on a TV it's what draws the eye back
+     at the moment the heart rates are about to move. */
+  .mb-text.flash { animation: flash 1.6s ease-out; }
+  @keyframes flash { 0% { color: var(--gold); } 100% { color: var(--text); } }
+
+  .side {
+    flex: none;
+    font-size: clamp(7.5px, 0.58vw, 9.5px); font-weight: 780; letter-spacing: 0.09em;
+    padding: 2px 5px; border-radius: 4px;
+  }
+  .side[data-side="ENG"] { background: rgba(57, 135, 229, 0.2); color: #6da7ec; }
+  .side[data-side="ARG"] { background: rgba(25, 158, 112, 0.2); color: #35D07F; }
+
+  /* ---------- board ---------- */
+  #board { position: relative; }
+
+  .row {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: var(--row-h);
+    display: grid;
+    grid-template-columns: clamp(38px, 3.4vw, 58px) minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: clamp(10px, 1.4vw, 22px);
+    padding: 0 clamp(14px, 1.5vw, 24px);
+    background: var(--panel);
+    border: 1px solid rgba(135, 154, 143, 0.1);
+    border-radius: 14px;
+    /* translateY is set inline per-rank; transitioning it IS the reorder animation. */
+    transition: transform 620ms cubic-bezier(0.22, 0.8, 0.24, 1),
+                opacity 320ms ease,
+                background 320ms ease;
+    will-change: transform;
+    overflow: hidden;
+  }
+
+  /* Leader gets a gold spine — instantly readable from across the room. */
+  .row.leader {
+    background: var(--panel-hi);
+    border-color: rgba(246, 196, 69, 0.3);
+  }
+  .row.leader::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--gold);
+  }
+
+  .row.entering { opacity: 0; }
+
+  .rank {
+    font-size: clamp(17px, 1.8vw, 27px);
+    font-weight: 700;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+  .row.leader .rank { color: var(--gold); }
+
+  .who { min-width: 0; }
+
+  .name-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  .name {
+    font-size: clamp(17px, 1.9vw, 29px);
+    font-weight: 640;
+    letter-spacing: -0.015em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chip {
+    flex: none;
+    font-size: clamp(8px, 0.62vw, 10px);
+    font-weight: 780;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 5px;
+    color: var(--ground);
+    background: var(--muted);
+  }
+  .chip[data-device="whoop"]  { background: var(--whoop);  color: #fff; }
+  .chip[data-device="fitbit"] { background: var(--fitbit); color: #06201F; }
+  .chip[data-device="apple"]  { background: var(--apple);  color: #101A15; }
+  .chip[data-device="pending"] {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid rgba(135, 154, 143, 0.4);
+  }
+
+  .meta {
+    font-size: clamp(11px, 1.02vw, 15px);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hr-val { color: var(--text); font-weight: 640; }
+  .heart { color: var(--meltdown); }
+  /* Beat the heart in time with the actual bpm — set via inline animation-duration. */
+  .heart.beating { display: inline-block; animation: beat 1s ease-in-out infinite; }
+  @keyframes beat {
+    0%, 100% { transform: scale(1); }
+    14%      { transform: scale(1.28); }
+    28%      { transform: scale(1); }
+    42%      { transform: scale(1.16); }
+  }
+  .sync.late { color: var(--gold); }
+
+  .peak {
+    text-align: right;
+    line-height: 1.25;
+  }
+  .peak-label {
+    font-size: clamp(8px, 0.6vw, 10px);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .peak-val {
+    font-size: clamp(15px, 1.35vw, 21px);
+    font-weight: 660;
+    font-variant-numeric: tabular-nums;
+  }
+  .composure {
+    font-size: clamp(8px, 0.6vw, 10px); font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; margin-top: 3px; color: var(--muted);
+  }
+  .composure[hidden] { display: none; }
+  .composure.win { color: var(--calm); }
+  .composure.lose { color: var(--meltdown); }
+
+  .score-cell {
+    display: flex;
+    align-items: center;
+    gap: clamp(10px, 1.1vw, 18px);
+  }
+
+  .gauge {
+    width: clamp(70px, 9vw, 168px);
+    height: 8px;
+    border-radius: 99px;
+    background: rgba(135, 154, 143, 0.16);
+    overflow: hidden;
+  }
+  .gauge-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 900ms cubic-bezier(0.22, 0.8, 0.24, 1), background-color 900ms ease;
+  }
+
+  .score-num {
+    text-align: right;
+    min-width: clamp(52px, 5vw, 92px);
+  }
+  .score-val {
+    font-size: clamp(26px, 3.1vw, 50px);
+    font-weight: 720;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    transition: color 900ms ease;
+  }
+  .state {
+    font-size: clamp(8px, 0.63vw, 11px);
+    font-weight: 760;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* ---------- empty / footer ---------- */
+  .empty {
+    text-align: center;
+    padding: clamp(50px, 9vw, 110px) 20px;
+    color: var(--muted);
+  }
+  .empty h2 {
+    font-size: clamp(16px, 1.5vw, 22px);
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+  .empty p { font-size: clamp(12px, 1vw, 15px); line-height: 1.6; }
+  .empty a { color: var(--gold); }
+
+  .foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-top: 22px;
+    flex-wrap: wrap;
+  }
+
+  button {
+    font: inherit;
+    font-size: clamp(12px, 1vw, 15px);
+    font-weight: 640;
+    color: var(--ground);
+    background: var(--gold);
+    border: 0;
+    border-radius: 10px;
+    padding: 11px 18px;
+    cursor: pointer;
+    transition: transform 140ms ease, filter 140ms ease;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: scale(0.97); }
+  button[hidden] { display: none; }
+
+  .hint {
+    font-size: clamp(10px, 0.82vw, 12px);
+    color: var(--muted);
+  }
+
+  /* ---------- phone ---------- */
+  @media (max-width: 620px) {
+    :root { --row-h: 88px; --row-gap: 9px; }
+    .row { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; padding: 0 12px; }
+    .peak { display: none; }          /* per spec: peak column goes first on narrow */
+    .gauge { display: none; }
+    .top { gap: 8px; }
+    .rattled { font-size: 12px; }
+    .name { font-size: 17px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 1ms !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="title-row">
+      <h1>Stress Index</h1>
+      <span class="live" id="live"><span class="dot"></span>Live</span>
+    </div>
+    <div class="rattled" id="rattled"></div>
+  </header>
+
+  <!-- Scripted-match strip: only present in MATCH_SIM. Gives every heartbeat on
+       the board a cause — without it the numbers move for no visible reason. -->
+  <div class="matchbar" id="matchbar" hidden>
+    <div class="mb-score">
+      <span class="mb-team eng">ENG</span>
+      <span class="mb-goals" id="mb-goals">0–0</span>
+      <span class="mb-team arg">ARG</span>
+      <span class="mb-clock" id="mb-clock">0'</span>
+    </div>
+    <div class="mb-text" id="mb-text"></div>
+  </div>
+
+  <main id="board" aria-live="polite"></main>
+
+  <div class="empty" id="empty" hidden>
+    <h2>Waiting for the first heartbeat</h2>
+    <p>
+      No readings yet. Register friends at <a href="/admin">/admin</a> and have them
+      connect their watch.<br />Tip: starting a <b>workout</b> on the watch makes it
+      report heart rate far more often.
+    </p>
+  </div>
+
+  <div class="foot">
+    <span class="hint" id="hint"></span>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <a class="hint" href="/trends" style="color:var(--gold); text-decoration:none;">Match trends →</a>
+      <button id="goal" hidden>⚽ Simulate goal</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const POLL_MS = 4000;
+  const ROW_H = () => parseInt(getComputedStyle(document.documentElement).getPropertyValue('--row-h'), 10);
+  const ROW_GAP = () => parseInt(getComputedStyle(document.documentElement).getPropertyValue('--row-gap'), 10);
+
+  const board = document.getElementById('board');
+  const emptyEl = document.getElementById('empty');
+  const rattledEl = document.getElementById('rattled');
+  const liveEl = document.getElementById('live');
+  const goalBtn = document.getElementById('goal');
+  const hintEl = document.getElementById('hint');
+
+  /** name -> { el, refs } so rows persist across polls and can animate rather than repaint. */
+  const rows = new Map();
+  let lastGoodFetch = 0;
+  /** name -> scoreboard row. Empty unless MATCH_SIM is on. */
+  let scoreboard = new Map();
+  let lastCommentary = '';
+
+  // --- stress ramp -----------------------------------------------------------
+  // Stops sit on the band boundaries from the server (30 / 55 / 78) so the colour
+  // crossing a boundary and the label changing happen at the same instant.
+  const STOPS = [
+    { at: 0,   c: [0x35, 0xD0, 0x7F] }, // calm
+    { at: 30,  c: [0xF6, 0xC4, 0x45] }, // tense
+    { at: 55,  c: [0xFF, 0x8A, 0x3D] }, // stressed
+    { at: 78,  c: [0xFF, 0x44, 0x38] }, // meltdown
+    { at: 100, c: [0xFF, 0x44, 0x38] },
+  ];
+
+  function rampColor(score) {
+    const s = Math.max(0, Math.min(100, score));
+    for (let i = 0; i < STOPS.length - 1; i++) {
+      const a = STOPS[i], b = STOPS[i + 1];
+      if (s >= a.at && s <= b.at) {
+        const t = b.at === a.at ? 0 : (s - a.at) / (b.at - a.at);
+        const c = a.c.map((v, k) => Math.round(v + (b.c[k] - v) * t));
+        return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+      }
+    }
+    return `rgb(${STOPS[STOPS.length - 1].c.join(', ')})`;
+  }
+
+  // --- row construction ------------------------------------------------------
+  function buildRow(f) {
+    const el = document.createElement('div');
+    el.className = 'row entering';
+    el.innerHTML = `
+      <div class="rank"></div>
+      <div class="who">
+        <div class="name-line">
+          <span class="name"></span>
+          <span class="side" hidden></span>
+          <span class="chip"></span>
+        </div>
+        <div class="meta">
+          <span class="heart">&#9829;</span>
+          <span class="hr-val"></span>
+          <span class="sync"></span>
+        </div>
+      </div>
+      <div class="peak">
+        <div class="peak-label">Peak</div>
+        <div class="peak-val"></div>
+        <div class="composure" hidden></div>
+      </div>
+      <div class="score-cell">
+        <div class="gauge"><div class="gauge-fill"></div></div>
+        <div class="score-num">
+          <div class="score-val"></div>
+          <div class="state"></div>
+        </div>
+      </div>`;
+
+    const refs = {
+      rank: el.querySelector('.rank'),
+      name: el.querySelector('.name'),
+      side: el.querySelector('.side'),
+      chip: el.querySelector('.chip'),
+      heart: el.querySelector('.heart'),
+      hr: el.querySelector('.hr-val'),
+      sync: el.querySelector('.sync'),
+      peak: el.querySelector('.peak-val'),
+      composure: el.querySelector('.composure'),
+      fill: el.querySelector('.gauge-fill'),
+      score: el.querySelector('.score-val'),
+      state: el.querySelector('.state'),
+    };
+
+    refs.name.textContent = f.name;
+    board.appendChild(el);
+    return { el, refs };
+  }
+
+  function paint(row, f, rank) {
+    const { el, refs } = row;
+    const color = rampColor(f.score);
+
+    el.classList.toggle('leader', rank === 0 && f.score > 0);
+    // translateY drives the FLIP-style reorder: same node, new offset, CSS eases it.
+    row.rank = rank; // remembered so resize can re-seat without a poll
+    el.style.transform = `translateY(${rank * (ROW_H() + ROW_GAP())}px)`;
+
+    refs.rank.textContent = rank + 1;
+    refs.chip.textContent = f.device === 'pending' ? 'no device' : f.device;
+    refs.chip.dataset.device = f.device;
+
+    if (f.latestHR == null) {
+      refs.hr.textContent = '—';
+      refs.heart.classList.remove('beating');
+    } else {
+      refs.hr.textContent = f.latestHR;
+      // Beat the icon at the friend's real bpm. Pure garnish, but on a TV it's
+      // what makes the board feel alive between 4s polls.
+      refs.heart.classList.add('beating');
+      refs.heart.style.animationDuration = (60 / Math.max(30, f.latestHR)).toFixed(2) + 's';
+    }
+
+    refs.peak.textContent = f.peakHR ?? '—';
+
+    // Composure only exists during a scripted match. Higher highs = you cracked,
+    // so the loser is whoever peaked hardest — not whoever is highest right now.
+    const sc = scoreboard.get(f.name);
+    refs.side.hidden = !sc?.side;
+    if (sc?.side) {
+      refs.side.textContent = sc.side;
+      refs.side.dataset.side = sc.side;
+    }
+    refs.composure.hidden = !sc;
+    if (sc) {
+      refs.composure.textContent = sc.loser ? `💀 ${sc.composure} pts` : `${sc.composure} pts`;
+      refs.composure.classList.toggle('win', !!sc.winner);
+      refs.composure.classList.toggle('lose', !!sc.loser);
+    }
+
+    refs.fill.style.width = f.score + '%';
+    refs.fill.style.backgroundColor = color;
+    refs.score.textContent = f.score;
+    refs.score.style.color = color;
+    refs.state.textContent = f.latestHR == null ? 'Waiting' : f.state;
+
+    // Stash for the 1s local ticker, which counts up between polls.
+    row.syncedAtClient = f.secondsAgo == null ? null : Date.now() - f.secondsAgo * 1000;
+    tickRow(row);
+
+    requestAnimationFrame(() => el.classList.remove('entering'));
+  }
+
+  /** "synced Xs ago" must keep counting between 4s polls, or the board looks frozen. */
+  function tickRow(row) {
+    const { refs } = row;
+    if (row.syncedAtClient == null) {
+      refs.sync.textContent = '· waiting for first sync';
+      refs.sync.classList.remove('late');
+      return;
+    }
+    const secs = Math.max(0, Math.floor((Date.now() - row.syncedAtClient) / 1000));
+    refs.sync.textContent = `· synced ${secs}s ago`;
+    refs.sync.classList.toggle('late', secs > 9); // amber past 9s, per spec
+  }
+
+  setInterval(() => rows.forEach(tickRow), 1000);
+
+  // --- render ----------------------------------------------------------------
+  function render(friends) {
+    emptyEl.hidden = friends.length > 0;
+    board.style.height = friends.length
+      ? friends.length * ROW_H() + (friends.length - 1) * ROW_GAP() + 'px'
+      : '0px';
+
+    const seen = new Set();
+    friends.forEach((f, i) => {
+      seen.add(f.name);
+      let row = rows.get(f.name);
+      if (!row) {
+        row = buildRow(f);
+        rows.set(f.name, row);
+      }
+      paint(row, f, i);
+    });
+
+    // Drop anyone the server no longer reports (e.g. after a restart).
+    for (const [name, row] of rows) {
+      if (!seen.has(name)) {
+        row.el.remove();
+        rows.delete(name);
+      }
+    }
+
+    const top = friends[0];
+    rattledEl.innerHTML = top && top.score > 0
+      ? `Most rattled: <b>${escapeHtml(top.name)}</b>`
+      : '';
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // --- scripted match strip ---------------------------------------------------
+  const matchbar = document.getElementById('matchbar');
+  const mbGoals = document.getElementById('mb-goals');
+  const mbClock = document.getElementById('mb-clock');
+  const mbText = document.getElementById('mb-text');
+
+  function renderMatch(m) {
+    if (!m?.running) { matchbar.hidden = true; return; }
+    matchbar.hidden = false;
+    mbGoals.textContent = `${m.score.eng}–${m.score.arg}`;
+    mbClock.textContent = m.finished ? "FT" : `${m.minute}'`;
+    if (m.commentary !== lastCommentary) {
+      lastCommentary = m.commentary;
+      mbText.textContent = m.commentary;
+      // Restart the flash: without the reflow the animation won't replay on a
+      // second identical class add.
+      mbText.classList.remove('flash');
+      void mbText.offsetWidth;
+      mbText.classList.add('flash');
+    }
+  }
+
+  // --- polling ---------------------------------------------------------------
+  async function poll() {
+    try {
+      const res = await fetch('/api/leaderboard', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      scoreboard = new Map((data.scoreboard || []).map((r) => [r.name, r]));
+      renderMatch(data.match);
+      render(data.friends || []);
+      lastGoodFetch = Date.now();
+      liveEl.classList.remove('stale');
+    } catch (err) {
+      // Never let a blip kill the board on a TV nobody is standing next to —
+      // keep the last frame up and mark the feed stale.
+      console.warn('[stress] poll failed:', err.message);
+      if (Date.now() - lastGoodFetch > 12000) liveEl.classList.add('stale');
+    }
+  }
+
+  // --- demo ------------------------------------------------------------------
+  async function initDemo() {
+    try {
+      const res = await fetch('/api/demo/status');
+      const { demo } = await res.json();
+      goalBtn.hidden = !demo;
+      hintEl.textContent = demo
+        ? 'Demo mode — simulated friends, no real devices connected.'
+        : '';
+    } catch { /* demo button simply stays hidden */ }
+  }
+
+  goalBtn.addEventListener('click', async () => {
+    goalBtn.disabled = true;
+    try { await fetch('/api/demo/goal', { method: 'POST' }); } catch {}
+    setTimeout(() => { goalBtn.disabled = false; }, 800);
+    poll();
+  });
+
+  // Re-seat rows instantly on resize — row height is a CSS clamp, so the pixel
+  // offsets computed above go stale the moment the viewport changes. Uses each
+  // row's stored rank, NOT Map order (which is insertion order and would scramble
+  // the board on the first resize).
+  addEventListener('resize', () => {
+    const h = ROW_H() + ROW_GAP();
+    for (const row of rows.values()) {
+      if (row.rank == null) continue;
+      row.el.style.transform = `translateY(${row.rank * h}px)`;
+    }
+    board.style.height = rows.size ? rows.size * ROW_H() + (rows.size - 1) * ROW_GAP() + 'px' : '0px';
+  });
+
+  initDemo();
+  poll();
+  setInterval(poll, POLL_MS);
+})();
+</script>
+</body>
+</html>

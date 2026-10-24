@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Stress Index — console</title>
+<style>
+  :root {
+    --ground: #0A130F;
+    --panel: #111E18;
+    --text: #DCE7E0;
+    --muted: #879A8F;
+    --gold: #F6C445;
+    --calm: #35D07F;
+    --meltdown: #FF4438;
+    --whoop: #E8482B;
+    --fitbit: #33C6C6;
+    --rail: 384px;   /* left pane width */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--ground);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;                 /* the panes scroll, not the page */
+  }
+
+  .split {
+    display: grid;
+    grid-template-columns: var(--rail) 1fr;
+    height: 100vh;
+    height: 100dvh;                   /* dvh so mobile browser chrome can't clip it */
+  }
+
+  /* ---------- LEFT: control rail ---------- */
+  .rail {
+    border-right: 1px solid rgba(135,154,143,0.14);
+    overflow-y: auto;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .rail::-webkit-scrollbar { width: 8px; }
+  .rail::-webkit-scrollbar-thumb { background: rgba(135,154,143,0.2); border-radius: 4px; }
+
+  .brand { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  h1 { font-size: 19px; font-weight: 680; letter-spacing: -0.02em; }
+  .mode { font-size: 9.5px; font-weight: 720; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+
+  h2 {
+    font-size: 10px; font-weight: 720; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+    display: flex; align-items: center; gap: 7px;
+  }
+  h2 .count { background: rgba(135,154,143,0.16); color: var(--text); border-radius: 20px; padding: 1px 6px; font-size: 9.5px; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid rgba(135,154,143,0.13);
+    border-radius: 11px;
+    padding: 12px 13px;
+  }
+
+  button, .btn {
+    font: inherit; font-size: 12px; font-weight: 600;
+    border: 0; border-radius: 7px; padding: 7px 10px;
+    cursor: pointer; text-decoration: none; display: inline-block;
+    transition: filter 140ms ease, border-color 140ms ease, color 140ms ease;
+  }
+  .primary { background: var(--gold); color: var(--ground); }
+  .primary:hover { filter: brightness(1.08); }
+  .ghost { background: transparent; color: var(--text); border: 1px solid rgba(135,154,143,0.3); }
+  .ghost:hover { border-color: var(--gold); color: var(--gold); }
+
+  .share-u {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 10px; color: var(--gold);
+    word-break: break-all; line-height: 1.45; margin: 5px 0 9px;
+  }
+  .share-t { font-size: 12px; font-weight: 620; }
+  .share-d { font-size: 10.5px; color: var(--muted); }
+  .row { display: flex; gap: 6px; }
+
+  .warn {
+    background: rgba(246,196,69,0.07);
+    border: 1px solid rgba(246,196,69,0.22);
+    border-radius: 9px; padding: 9px 11px;
+    font-size: 11px; line-height: 1.55; color: var(--gold);
+  }
+
+  #watch-card.sharing { border-color: rgba(53,208,127,0.35); }
+  #share-btn.live { background: var(--meltdown); color: #fff; }
+  .viewers {
+    margin-top: 9px; padding-top: 8px;
+    border-top: 1px solid rgba(135,154,143,0.1);
+    font-size: 10.5px; color: var(--muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .viewers .d { width: 5px; height: 5px; border-radius: 50%; background: var(--calm); }
+  .warn code { font-family: ui-monospace, Menlo, monospace; font-size: 10px; }
+
+  /* roster */
+  .friend {
+    background: var(--panel);
+    border: 1px solid rgba(135,154,143,0.12);
+    border-left: 3px solid var(--muted);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 7px;
+  }
+  .friend.on { border-left-color: var(--calm); }
+  .friend.stale { border-left-color: var(--gold); }
+  .friend.off { border-left-color: rgba(135,154,143,0.4); }
+  .f-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .f-who { display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .f-name { font-size: 14px; font-weight: 640; white-space: nowrap; }
+  .chip {
+    font-size: 7.5px; font-weight: 780; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 2px 5px; border-radius: 4px; color: var(--ground); background: var(--muted); flex: none;
+  }
+  .chip[data-device="whoop"] { background: var(--whoop); color: #fff; }
+  .chip[data-device="fitbit"] { background: var(--fitbit); color: #06201F; }
+  .chip[data-device="pending"] { background: transparent; color: var(--muted); border: 1px solid rgba(135,154,143,0.4); }
+  .f-hr { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .f-hr small { font-size: 9px; font-weight: 560; color: var(--muted); margin-left: 2px; }
+  .f-hr.none { font-size: 11px; font-weight: 560; color: var(--muted); }
+  .f-meta { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+  .f-meta .bad { color: var(--gold); }
+  .f-link { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(135,154,143,0.09); }
+  .f-url { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .x { background: transparent; color: var(--muted); border: 0; padding: 4px 6px; font-size: 14px; line-height: 1; }
+  .x:hover { color: var(--meltdown); }
+
+  .empty {
+    background: var(--panel); border: 1px dashed rgba(135,154,143,0.22);
+    border-radius: 10px; padding: 20px 14px; text-align: center;
+    color: var(--muted); font-size: 12px; line-height: 1.6;
+  }
+
+  /* form */
+  details.add summary {
+    cursor: pointer; list-style: none;
+    font-size: 10px; font-weight: 720; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); padding: 4px 0;
+  }
+  details.add summary::-webkit-details-marker { display: none; }
+  details.add summary::before { content: '+ '; color: var(--gold); }
+  details.add[open] summary::before { content: '– '; }
+  .field { margin-bottom: 9px; }
+  label { display: block; font-size: 9.5px; font-weight: 720; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  input {
+    width: 100%; font: inherit; font-size: 16px; /* 16px stops iOS zoom on focus */
+    color: var(--text); background: var(--ground);
+    border: 1px solid rgba(135,154,143,0.24); border-radius: 8px; padding: 9px 10px;
+  }
+  input:focus { outline: none; border-color: var(--gold); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .devices { display: flex; gap: 6px; }
+  .devices button { flex: 1; font-size: 12px; color: var(--text); background: var(--ground); border: 1px solid rgba(135,154,143,0.24); border-radius: 8px; padding: 9px 8px; }
+  .devices button[aria-pressed="true"] { border-color: var(--gold); background: rgba(246,196,69,0.12); color: var(--gold); }
+  #submit { width: 100%; padding: 10px; font-size: 13px; margin-top: 3px; }
+  .msg { font-size: 11px; margin-top: 8px; color: var(--meltdown); display: none; }
+  .msg.on { display: block; }
+
+  /* ---------- RIGHT: the shared screen ---------- */
+  .stage { position: relative; background: var(--ground); }
+  /* The board is iframed rather than reimplemented: it already polls, reorders and
+     scales on its own, and two copies of that logic would drift apart. */
+  iframe {
+    width: 100%; height: 100%;
+    border: 0; display: block;
+  }
+  .stage-bar {
+    position: absolute; top: 10px; right: 12px;
+    display: flex; gap: 6px; z-index: 2;
+  }
+  .stage-bar button, .stage-bar a {
+    background: rgba(10,19,15,0.82);
+    border: 1px solid rgba(135,154,143,0.24);
+    color: var(--text);
+    backdrop-filter: blur(8px);
+    font-size: 11px;
+  }
+  .stage-bar button[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
+
+  .preview { position: absolute; inset: 0; background: #000; }
+  .preview[hidden] { display: none; }
+  .preview video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .pv-tag {
+    position: absolute; bottom: 12px; left: 14px;
+    background: rgba(10,19,15,0.8); backdrop-filter: blur(8px);
+    border: 1px solid rgba(53,208,127,0.35); color: var(--calm);
+    border-radius: 20px; padding: 4px 10px;
+    font-size: 9.5px; font-weight: 720; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .pv-empty {
+    position: absolute; inset: 0;
+    display: grid; place-items: center; text-align: center; padding: 24px;
+    background: var(--ground);
+  }
+  .pv-empty[hidden] { display: none; }
+
+  /* ---------- narrow: stack, board first ---------- */
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    .split { grid-template-columns: 1fr; height: auto; }
+    .stage { order: -1; height: 62vh; border-bottom: 1px solid rgba(135,154,143,0.14); }
+    .rail { border-right: 0; height: auto; overflow: visible; }
+  }
+</style>
+</head>
+<body>
+<div class="split">
+
+  <!-- LEFT: control rail -->
+  <aside class="rail">
+    <div class="brand">
+      <h1>Stress Index</h1>
+      <span class="mode" id="mode"></span>
+    </div>
+
+    <div class="card" id="watch-card">
+      <div class="share-t">Watch along</div>
+      <div class="share-d" id="watch-d">Share the match — friends watch it beside the board</div>
+      <div class="share-u" id="watch-url">…</div>
+      <div class="row">
+        <button class="primary" id="share-btn">Share my screen</button>
+        <button class="ghost" data-copy="watch">Copy link</button>
+      </div>
+      <div class="viewers" id="viewers" hidden></div>
+    </div>
+
+    <div class="card">
+      <div class="share-t">Board &amp; trends</div>
+      <div class="share-d">Cast the board to the TV</div>
+      <div class="share-u" id="board-url">…</div>
+      <div class="row">
+        <button class="ghost" data-copy="board">Copy board</button>
+        <button class="ghost" data-copy="trends">Copy trends</button>
+      </div>
+    </div>
+
+    <div class="warn" id="lan-warn" hidden>
+      ⚠ Links only work on this wifi. For links that work anywhere:
+      <code>cloudflared tunnel --url http://localhost:8090</code>, then restart with
+      <code>PUBLIC_URL=https://&lt;tunnel&gt;</code>.
+    </div>
+
+    <h2>Connected <span class="count" id="count">0</span></h2>
+    <div id="roster"></div>
+
+    <details class="add">
+      <summary>Add someone</summary>
+      <form id="form" style="margin-top:10px">
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" required autocomplete="off" placeholder="Arjun" />
+        </div>
+        <div class="two">
+          <div class="field">
+            <label for="age">Age</label>
+            <input id="age" name="age" type="number" required min="10" max="99" placeholder="28" />
+          </div>
+          <div class="field">
+            <label for="restingHR">Resting HR</label>
+            <input id="restingHR" name="restingHR" type="number" required min="30" max="120" placeholder="55" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Device</label>
+          <div class="devices" id="devices" role="group" aria-label="Device">
+            <button type="button" data-provider="fitbit" aria-pressed="true">Fitbit</button>
+            <button type="button" data-provider="whoop_v2" aria-pressed="false">Whoop</button>
+          </div>
+        </div>
+        <button type="submit" id="submit" class="primary">Create link</button>
+        <div class="msg" id="msg"></div>
+      </form>
+    </details>
+  </aside>
+
+  <!-- RIGHT: the thing everyone looks at -->
+  <main class="stage">
+    <div class="stage-bar">
+      <button id="view-board" aria-pressed="true">Board</button>
+      <button id="view-trends" aria-pressed="false">Trends</button>
+      <button id="view-watch" aria-pressed="false">Watch</button>
+      <a class="btn" id="popout" href="/" target="_blank" rel="noopener" title="Open in its own window for casting">↗</a>
+    </div>
+    <iframe id="stage" src="/" title="Live board"></iframe>
+
+    <!-- Local preview of what you're broadcasting. This is the SAME MediaStream
+         object the peer connections send — not a second capture and not a round
+         trip through WebRTC, so it costs no extra bandwidth and cannot drift from
+         what viewers actually receive. -->
+    <div class="preview" id="preview" hidden>
+      <video id="pv" autoplay playsinline muted></video>
+      <div class="pv-tag" id="pv-tag">What your friends see</div>
+      <div class="pv-empty" id="pv-empty">
+        <div>
+          <div style="font-size:30px;margin-bottom:10px">📺</div>
+          <div style="font-size:15px;font-weight:620;margin-bottom:5px">Not sharing</div>
+          <div style="font-size:12.5px;color:var(--muted);line-height:1.6;max-width:32ch">
+            Hit <b style="color:var(--gold)">Share my screen</b> on the left. This is where
+            you'll see exactly what your friends see.
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const rosterEl = document.getElementById('roster');
+  const countEl = document.getElementById('count');
+  const boardUrlEl = document.getElementById('board-url');
+  const lanWarn = document.getElementById('lan-warn');
+  const modeEl = document.getElementById('mode');
+  const form = document.getElementById('form');
+  const submit = document.getElementById('submit');
+  const msg = document.getElementById('msg');
+  const stage = document.getElementById('stage');
+  const popout = document.getElementById('popout');
+
+  let urls = { board: '', trends: '' };
+  const esc = (s) => { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; };
+
+  async function copy(btn, text) {
+    const old = btn.textContent;
+    try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied ✓'; }
+    catch { btn.textContent = 'Copy failed'; }
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  }
+  document.querySelectorAll('[data-copy]').forEach((b) =>
+    b.addEventListener('click', () => copy(b, urls[b.dataset.copy])));
+
+  // --- stage switcher ---
+  const vb = document.getElementById('view-board');
+  const vt = document.getElementById('view-trends');
+  const vw = document.getElementById('view-watch');
+  const preview = document.getElementById('preview');
+  const pv = document.getElementById('pv');
+  const pvEmpty = document.getElementById('pv-empty');
+  let stageView = 'board';
+
+  function show(which) {
+    stageView = which;
+    const watching = which === 'watch';
+    // The preview sits OVER the iframe rather than replacing it: swapping the
+    // iframe's src would reload the board and throw away its row positions and
+    // fade-in every time you peeked at the stream.
+    preview.hidden = !watching;
+    stage.style.visibility = watching ? 'hidden' : 'visible';
+
+    if (!watching) {
+      const next = which === 'trends' ? '/trends' : '/';
+      // Only reassign src when it actually changes, for the same reason.
+      if (!stage.src.endsWith(next)) stage.src = next;
+      popout.href = next;
+    } else {
+      popout.href = urls.watch || '/watch';
+    }
+    vb.setAttribute('aria-pressed', String(which === 'board'));
+    vt.setAttribute('aria-pressed', String(which === 'trends'));
+    vw.setAttribute('aria-pressed', String(watching));
+    paintPreview();
+  }
+
+  /** Attach/detach the live stream to the preview element. */
+  function paintPreview() {
+    const live = !!stream;
+    pvEmpty.hidden = live;
+    if (live) {
+      if (pv.srcObject !== stream) pv.srcObject = stream;
+      pv.play?.().catch(() => {});
+    } else {
+      pv.srcObject = null;
+    }
+  }
+
+  vb.addEventListener('click', () => show('board'));
+  vt.addEventListener('click', () => show('trends'));
+  vw.addEventListener('click', () => show('watch'));
+
+  // --- roster ---
+  function statusLine(f, windowHours) {
+    if (!f.connected) return '<span class="bad">waiting for them to connect</span>';
+    if (!f.everSynced) {
+      return `<span class="bad">no reading in ${windowHours}h — ask them to open their health app</span>`;
+    }
+    const mins = Math.floor(f.secondsAgo / 60);
+    const ago = f.secondsAgo < 90 ? `${f.secondsAgo}s ago` : mins < 90 ? `${mins}m ago` : `${(mins / 60).toFixed(1)}h ago`;
+    return f.stale
+      ? `<span class="bad">not syncing · last ${ago}</span>`
+      : `score ${f.score} · synced ${ago}`;
+  }
+
+  function render(data) {
+    urls = { board: data.board, trends: data.trends };
+    boardUrlEl.textContent = data.board;
+    lanWarn.hidden = !data.lanOnly;
+    modeEl.textContent = data.demo ? 'demo' : 'live';
+
+    const connected = data.friends.filter((f) => f.connected).length;
+    countEl.textContent = `${connected}/${data.friends.length}`;
+
+    if (!data.friends.length) {
+      rosterEl.innerHTML = `<div class="empty">Nobody yet.<br />Add someone below.</div>`;
+      return;
+    }
+
+    rosterEl.innerHTML = data.friends.map((f) => {
+      // Green means ACTUALLY REPORTING. Connected-but-silent is amber, or the one
+      // person who won't appear on the TV looks fine until kickoff.
+      const cls = !f.connected ? 'off' : (f.stale || !f.everSynced) ? 'stale' : 'on';
+      const hr = f.latestHR == null
+        ? '<span class="f-hr none">—</span>'
+        : `<span class="f-hr">${f.latestHR}<small>bpm</small></span>`;
+      return `
+        <div class="friend ${cls}">
+          <div class="f-top">
+            <div class="f-who">
+              <span class="f-name">${esc(f.name)}</span>
+              <span class="chip" data-device="${esc(f.device)}">${f.device === 'pending' ? 'no device' : esc(f.device)}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              ${hr}
+              <button class="x" data-remove="${esc(f.vitalUserId)}" title="Remove ${esc(f.name)}">×</button>
+            </div>
+          </div>
+          <div class="f-meta">${statusLine(f, data.windowHours ?? 6)}</div>
+          ${f.shortUrl ? `
+            <div class="f-link">
+              <span class="f-url">${esc(f.shortUrl.replace(/^https?:\/\//, ''))}</span>
+              <button class="ghost" data-copylink="${esc(f.shortUrl)}">Copy</button>
+            </div>` : ''}
+        </div>`;
+    }).join('');
+
+    rosterEl.querySelectorAll('[data-copylink]').forEach((b) =>
+      b.addEventListener('click', () => copy(b, b.dataset.copylink)));
+    rosterEl.querySelectorAll('[data-remove]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        await fetch(`/api/friends/${encodeURIComponent(b.dataset.remove)}`, { method: 'DELETE' });
+        load();
+      }));
+  }
+
+  async function load() {
+    try {
+      const res = await fetch('/api/friends', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      render(await res.json());
+    } catch (err) {
+      console.warn('[console] load failed:', err.message); // hold the last render
+    }
+  }
+
+  // --- add ---
+  let provider = 'fitbit';
+  const devicesEl = document.getElementById('devices');
+  devicesEl.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    provider = b.dataset.provider;
+    [...devicesEl.children].forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msg.classList.remove('on');
+    submit.disabled = true;
+    submit.textContent = 'Creating…';
+    try {
+      const res = await fetch('/api/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.value.trim(),
+          age: Number(form.age.value),
+          restingHR: Number(form.restingHR.value),
+          provider,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || 'Request failed');
+      form.reset();
+      form.name.focus();
+      await load();
+    } catch (err) {
+      msg.textContent = err.message;
+      msg.classList.add('on');
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Create link';
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // WATCH ALONG — host side
+  // ---------------------------------------------------------------------------
+  //
+  // One RTCPeerConnection per viewer (a star, not a mesh). The video goes straight
+  // to each friend; the server only carries the SDP/ICE handshake. YOUR UPLOAD is
+  // the ceiling — every extra viewer is another full encode+upload of the stream.
+
+  const shareBtn = document.getElementById('share-btn');
+  const watchUrlEl = document.getElementById('watch-url');
+  const watchCard = document.getElementById('watch-card');
+  const watchD = document.getElementById('watch-d');
+  const viewersEl = document.getElementById('viewers');
+
+  const hostId = 'h-' + Math.random().toString(36).slice(2, 10);
+  const ICE = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }] };
+
+  let stream = null;
+  let es = null;
+  /** @type {Map<string, RTCPeerConnection>} viewerId -> pc */
+  const peers = new Map();
+
+  const post = (type, payload = {}, to) =>
+    fetch(`/api/signal/${hostId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, type, payload }),
+    }).catch(() => {});
+
+  function paintViewers() {
+    const n = peers.size;
+    viewersEl.hidden = !stream;
+    viewersEl.innerHTML = !stream ? '' :
+      `<span class="d"></span>${n === 0 ? 'sharing · nobody watching yet' : `sharing · ${n} watching`}`;
+  }
+
+  async function offerTo(viewerId) {
+    if (!stream) return;
+    // Replace any half-built connection for this viewer — they may have reloaded.
+    peers.get(viewerId)?.close();
+
+    const pc = new RTCPeerConnection(ICE);
+    peers.set(viewerId, pc);
+    for (const track of stream.getTracks()) pc.addTrack(track, stream);
+
+    pc.onicecandidate = (e) => { if (e.candidate) post('ice', { candidate: e.candidate }, viewerId); };
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+        peers.delete(viewerId);
+        paintViewers();
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    post('offer', { sdp: offer }, viewerId);
+    paintViewers();
+  }
+
+  function stopSharing() {
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+    for (const pc of peers.values()) { try { pc.close(); } catch {} }
+    peers.clear();
+    es?.close();
+    es = null;
+    shareBtn.textContent = 'Share my screen';
+    shareBtn.classList.remove('live');
+    watchCard.classList.remove('sharing');
+    watchD.textContent = 'Share the match — friends watch it beside the board';
+    paintViewers();
+    paintPreview();     // clears the frozen last frame
+    if (stageView === 'watch') show('board');
+  }
+
+  async function startSharing() {
+    // Secure context only: getDisplayMedia is unavailable on plain http, except
+    // on localhost. Say so plainly rather than throwing an opaque error.
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      watchD.textContent = location.protocol === 'https:' || location.hostname === 'localhost'
+        ? 'Screen sharing is not supported in this browser.'
+        : 'Screen sharing needs HTTPS — open this page via your tunnel URL.';
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 30, max: 30 } },
+        audio: true, // tab audio, if the browser + OS allow it
+      });
+    } catch {
+      return; // user dismissed the picker — not an error
+    }
+
+    // The browser's own "Stop sharing" bar must tear us down too, or viewers sit
+    // on a frozen frame that looks exactly like a working stream.
+    stream.getVideoTracks()[0]?.addEventListener('ended', stopSharing);
+
+    shareBtn.textContent = 'Stop sharing';
+    shareBtn.classList.add('live');
+    watchCard.classList.add('sharing');
+    watchD.textContent = 'Live — send the link below';
+    paintViewers();
+    // Jump to the preview: the moment you start sharing, the thing you want to
+    // check is what's actually going out.
+    show('watch');
+
+    es = new EventSource(`/api/signal/host/${hostId}`);
+    es.onmessage = async (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      switch (msg.type) {
+        case 'viewer-joined': await offerTo(msg.peerId); break;
+        case 'answer':
+          try { await peers.get(msg.from)?.setRemoteDescription(msg.payload.sdp); } catch {}
+          break;
+        case 'ice':
+          try { await peers.get(msg.from)?.addIceCandidate(msg.payload.candidate); } catch {}
+          break;
+        case 'viewer-left':
+          peers.get(msg.peerId)?.close();
+          peers.delete(msg.peerId);
+          paintViewers();
+          break;
+      }
+    };
+  }
+
+  shareBtn.addEventListener('click', () => (stream ? stopSharing() : startSharing()));
+  addEventListener('beforeunload', () => stream && stopSharing());
+
+  async function watchStatus() {
+    try {
+      const s = await fetch('/api/watch/status', { cache: 'no-store' }).then((r) => r.json());
+      urls.watch = s.watchUrl;
+      watchUrlEl.textContent = s.watchUrl;
+      // Someone else is hosting from another tab/machine — don't imply we are.
+      if (!stream && s.sharing) {
+        watchD.textContent = `Someone else is sharing · ${s.viewers} watching`;
+      }
+    } catch { /* keep last */ }
+  }
+
+  load();
+  watchStatus();
+  setInterval(load, 5000);
+  setInterval(watchStatus, 8000);
+})();
+</script>
+</body>
+</html>

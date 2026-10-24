@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Watch along — Stress Index</title>
+<style>
+  :root {
+    --ground: #0A130F;
+    --panel: #111E18;
+    --text: #DCE7E0;
+    --muted: #879A8F;
+    --gold: #F6C445;
+    --calm: #35D07F;
+    --meltdown: #FF4438;
+    --rail: 300px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #000;
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  .split { display: grid; grid-template-columns: 1fr var(--rail); height: 100vh; height: 100dvh; }
+
+  /* ---- the match ---- */
+  .stage { position: relative; background: #000; display: grid; place-items: center; }
+  video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    text-align: center; padding: 24px;
+    background: var(--ground);
+  }
+  .overlay[hidden] { display: none; }
+  .dot {
+    width: 54px; height: 54px; margin: 0 auto 16px;
+    border-radius: 50%; display: grid; place-items: center; font-size: 24px;
+    background: rgba(135,154,143,0.1); border: 1px solid rgba(135,154,143,0.3);
+  }
+  .dot.live { background: rgba(53,208,127,0.12); border-color: rgba(53,208,127,0.4); }
+  .o-t { font-size: 19px; font-weight: 640; margin-bottom: 7px; }
+  .o-s { font-size: 13.5px; color: var(--muted); line-height: 1.6; max-width: 34ch; margin: 0 auto; }
+
+  .badge {
+    position: absolute; top: 12px; left: 14px; z-index: 2;
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(10,19,15,0.78); backdrop-filter: blur(8px);
+    border: 1px solid rgba(135,154,143,0.2);
+    border-radius: 20px; padding: 5px 11px;
+    font-size: 10px; font-weight: 720; letter-spacing: 0.11em; text-transform: uppercase;
+    color: var(--muted);
+  }
+  .badge.on { color: var(--calm); }
+  .badge .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge.on .d { animation: pulse 2s ease-out infinite; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(53,208,127,0.6); }
+    70% { box-shadow: 0 0 0 8px rgba(53,208,127,0); }
+    100% { box-shadow: 0 0 0 0 rgba(53,208,127,0); }
+  }
+
+  /* ---- the board beside it ---- */
+  .rail {
+    background: var(--ground);
+    border-left: 1px solid rgba(135,154,143,0.14);
+    overflow: hidden;
+  }
+  /* Iframed rather than reimplemented — the board already polls, reorders and
+     scales itself; a second copy would drift out of sync with the real one. */
+  iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  @media (max-width: 860px) {
+    .split { grid-template-columns: 1fr; grid-template-rows: 46vh 1fr; }
+    .rail { border-left: 0; border-top: 1px solid rgba(135,154,143,0.14); }
+  }
+</style>
+</head>
+<body>
+<div class="split">
+  <main class="stage">
+    <span class="badge" id="badge"><span class="d"></span><span id="badge-t">connecting</span></span>
+    <video id="v" autoplay playsinline muted></video>
+    <div class="overlay" id="overlay">
+      <div>
+        <div class="dot" id="dot">📺</div>
+        <div class="o-t" id="o-t">Waiting for the stream</div>
+        <div class="o-s" id="o-s">Nobody's sharing their screen yet. It'll appear here the moment they start.</div>
+      </div>
+    </div>
+  </main>
+  <aside class="rail"><iframe src="/" title="Live stress board"></iframe></aside>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const v = document.getElementById('v');
+  const overlay = document.getElementById('overlay');
+  const dot = document.getElementById('dot');
+  const oT = document.getElementById('o-t');
+  const oS = document.getElementById('o-s');
+  const badge = document.getElementById('badge');
+  const badgeT = document.getElementById('badge-t');
+
+  const me = 'v-' + Math.random().toString(36).slice(2, 10);
+  let pc = null;
+
+  // Public STUN only. No TURN, so a viewer on a symmetric NAT (some mobile
+  // carriers, locked-down corporate wifi) may never connect — that needs a relay
+  // server, which is a paid thing. Same wifi as the host always works.
+  const ICE = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }] };
+
+  const post = (type, payload = {}, to) =>
+    fetch(`/api/signal/${me}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, type, payload }),
+    }).catch(() => {});
+
+  function setState(state, title, sub) {
+    overlay.hidden = state === 'live';
+    badge.classList.toggle('on', state === 'live');
+    badgeT.textContent = state === 'live' ? 'live' : state;
+    dot.classList.toggle('live', state === 'live');
+    if (title) oT.textContent = title;
+    if (sub) oS.textContent = sub;
+  }
+
+  function teardown() {
+    if (pc) { try { pc.close(); } catch {} pc = null; }
+    v.srcObject = null;
+  }
+
+  async function handleOffer(msg) {
+    teardown();
+    pc = new RTCPeerConnection(ICE);
+
+    pc.ontrack = (e) => {
+      v.srcObject = e.streams[0];
+      // Autoplay only survives muted. The host's tab audio still arrives on the
+      // track; the unmute click below attaches it on a real user gesture.
+      v.play?.().catch(() => {});
+      setState('live');
+    };
+    pc.onicecandidate = (e) => {
+      if (e.candidate) post('ice', { candidate: e.candidate }, msg.from);
+    };
+    pc.onconnectionstatechange = () => {
+      if (['failed', 'disconnected'].includes(pc.connectionState)) {
+        setState('reconnecting', 'Lost the stream',
+          'The connection dropped. Retrying — if it sticks, the host may need to re-share.');
+      }
+    };
+
+    await pc.setRemoteDescription(msg.payload.sdp);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    post('answer', { sdp: answer }, msg.from);
+  }
+
+  // --- signalling stream ---
+  const es = new EventSource(`/api/signal/viewer/${me}`);
+  es.onmessage = async (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+
+    switch (msg.type) {
+      case 'joined':
+        setState('waiting');
+        break;
+      case 'no-host':
+        teardown();
+        setState('waiting', 'Waiting for the stream',
+          "Nobody's sharing their screen yet. It'll appear here the moment they start.");
+        break;
+      case 'host-present':
+        setState('connecting', 'Connecting…', 'Someone is sharing. Hooking up the video.');
+        break;
+      case 'offer':
+        await handleOffer(msg);
+        break;
+      case 'ice':
+        // Candidates can arrive before the offer is applied; ignoring one is
+        // survivable (others will do), throwing is not.
+        try { await pc?.addIceCandidate(msg.payload.candidate); } catch {}
+        break;
+      case 'host-gone':
+        teardown();
+        setState('waiting', 'Stream ended',
+          'The host stopped sharing. The board on the right is still live.');
+        break;
+    }
+  };
+  es.onerror = () => setState('reconnecting', 'Reconnecting…', 'Lost contact with the server. Retrying.');
+
+  // Click to unmute — browsers block autoplay with sound until a real gesture.
+  v.addEventListener('click', () => {
+    v.muted = !v.muted;
+    badgeT.textContent = v.muted ? 'live · muted (tap for sound)' : 'live';
+  });
+  setState('connecting');
+  badgeT.textContent = 'connecting';
+})();
+</script>
+</body>
+</html>

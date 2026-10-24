@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>You're in — Stress Index</title>
+<style>
+  :root {
+    --ground: #0A130F;
+    --panel: #111E18;
+    --text: #DCE7E0;
+    --muted: #879A8F;
+    --gold: #F6C445;
+    --calm: #35D07F;
+    --meltdown: #FF4438;
+    --whoop: #E8482B;
+    --fitbit: #33C6C6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--ground);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+  .wrap { width: 100%; max-width: 380px; text-align: center; }
+
+  .tick {
+    width: 58px; height: 58px;
+    margin: 0 auto 18px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 27px;
+    background: rgba(53, 208, 127, 0.13);
+    border: 1px solid rgba(53, 208, 127, 0.4);
+  }
+  .tick.bad { background: rgba(255, 68, 56, 0.1); border-color: rgba(255, 68, 56, 0.4); }
+
+  h1 { font-size: 25px; font-weight: 680; letter-spacing: -0.02em; margin-bottom: 8px; }
+  .sub { color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+  /* live card */
+  .card {
+    background: var(--panel);
+    border: 1px solid rgba(135, 154, 143, 0.14);
+    border-radius: 14px;
+    padding: 18px;
+    margin: 22px 0 18px;
+  }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .who { display: flex; align-items: center; gap: 9px; }
+  .nm { font-size: 17px; font-weight: 640; }
+  .chip {
+    font-size: 8px; font-weight: 780; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 5px; color: var(--ground); background: var(--muted);
+  }
+  .chip[data-device="whoop"] { background: var(--whoop); color: #fff; }
+  .chip[data-device="fitbit"] { background: var(--fitbit); color: #06201F; }
+  .chip[data-device="pending"] {
+    background: transparent; color: var(--muted); border: 1px solid rgba(135,154,143,0.4);
+  }
+  .bpm { font-size: 27px; font-weight: 720; letter-spacing: -0.02em; }
+  .bpm small { font-size: 12px; font-weight: 560; color: var(--muted); margin-left: 3px; }
+  .waiting { font-size: 13px; color: var(--muted); }
+  .heart { color: var(--meltdown); display: inline-block; }
+  .heart.beating { animation: beat 1s ease-in-out infinite; }
+  @keyframes beat {
+    0%,100% { transform: scale(1); } 14% { transform: scale(1.28); } 28% { transform: scale(1); } 42% { transform: scale(1.16); }
+  }
+  .meta {
+    margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid rgba(135,154,143,0.1);
+    font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+
+  .todo {
+    text-align: left;
+    background: rgba(246, 196, 69, 0.06);
+    border: 1px solid rgba(246, 196, 69, 0.2);
+    border-radius: 11px;
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--muted);
+    margin-bottom: 18px;
+  }
+  .todo b { color: var(--gold); }
+
+  a.btn {
+    display: block;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 640;
+    color: var(--ground);
+    background: var(--gold);
+    border-radius: 10px;
+    padding: 13px;
+  }
+  a.ghost {
+    background: transparent;
+    color: var(--muted);
+    font-weight: 560;
+    font-size: 13px;
+    padding: 10px;
+  }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="ok">
+    <div class="tick">✓</div>
+    <h1 id="title">You're in</h1>
+    <p class="sub" id="sub">Watch connected. Your heart rate is on its way to the board.</p>
+
+    <div class="card" id="card" hidden>
+      <div class="row">
+        <div class="who">
+          <span class="nm" id="nm"></span>
+          <span class="chip" id="chip"></span>
+        </div>
+        <div id="val"></div>
+      </div>
+      <div class="meta" id="meta"></div>
+    </div>
+
+    <div class="todo">
+      <b>One thing:</b> open the <b>Google Health</b> app (or Whoop) now and again —
+      that's what pushes your heart rate to the cloud. Leave it alone and it still
+      arrives, just on its own schedule.
+      <br /><br />
+      <b>At kickoff:</b> start a <b>workout</b> on your watch. Idle watches report every
+      few minutes; a live workout reports every few seconds.
+    </div>
+
+    <a class="btn" href="/">See the board →</a>
+  </div>
+
+  <!-- Junction redirects here with error params on failure/close too -->
+  <div id="err" hidden>
+    <div class="tick bad">✕</div>
+    <h1 id="err-title">Didn't connect</h1>
+    <p class="sub" id="err-sub"></p>
+    <p class="sub" style="margin-top:16px">
+      <a class="ghost" href="#" id="retry">← Try again</a>
+    </p>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const params = new URLSearchParams(location.search);
+  const code = params.get('c');
+
+  // Junction's documented redirect contract:
+  //   success -> ?state=success
+  //   error   -> ?state=error&error_type=<type>&error=<human readable message>
+  // `state` is the discriminator; `error` is the MESSAGE, not the type. (An earlier
+  // version keyed off the presence of `error` and worked only by accident.)
+  const state = params.get('state');
+  const errType = params.get('error_type') || '';
+  const errMsg = params.get('error') || '';
+  const isError = state === 'error' || (!!errType && state !== 'success');
+
+  if (isError) {
+    document.getElementById('ok').hidden = true;
+    document.getElementById('err').hidden = false;
+    // onClose=redirect sends `user_cancelled`; the docs don't pin the close params
+    // exactly, so match on either field rather than assuming which carries it.
+    const cancelled = /cancel|closed/i.test(`${errType} ${errMsg}`);
+    document.getElementById('err-title').textContent = cancelled ? 'Cancelled' : "Didn't connect";
+    document.getElementById('err-sub').textContent = cancelled
+      ? 'You closed the window before finishing. Your link still works — tap it again.'
+      : (errMsg || errType || 'Something went wrong on the provider\'s side.');
+    const retry = document.getElementById('retry');
+    if (code) retry.href = `/j/${encodeURIComponent(code)}`;
+    return;
+  }
+
+  if (!code) {
+    document.getElementById('sub').textContent = 'Connected. Head to the board to see the party.';
+    return;
+  }
+
+  const cardEl = document.getElementById('card');
+  const nmEl = document.getElementById('nm');
+  const chipEl = document.getElementById('chip');
+  const valEl = document.getElementById('val');
+  const metaEl = document.getElementById('meta');
+  const titleEl = document.getElementById('title');
+  const subEl = document.getElementById('sub');
+
+  const esc = (s) => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+
+  async function poll() {
+    try {
+      const res = await fetch(`/api/me/${encodeURIComponent(code)}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const me = await res.json();
+
+      cardEl.hidden = false;
+      titleEl.textContent = `You're in, ${me.name}`;
+      nmEl.textContent = me.name;
+      chipEl.textContent = me.device === 'pending' ? 'connecting…' : me.device;
+      chipEl.dataset.device = me.device;
+
+      if (me.latestHR == null) {
+        // Be honest about the wait. The provider's phone→cloud sync runs on its own
+        // timer, so "any second now" would be a lie — first reading can take minutes.
+        valEl.innerHTML = '<span class="waiting">waiting for first reading…</span>';
+        metaEl.textContent = 'Can take a few minutes — that\'s your watch\'s sync, not the app.';
+        subEl.textContent = 'Watch connected. Your heart rate is on its way to the board.';
+      } else {
+        valEl.innerHTML =
+          `<span class="bpm"><span class="heart beating" style="animation-duration:${(60 / Math.max(30, me.latestHR)).toFixed(2)}s">&#9829;</span> ` +
+          `${me.latestHR}<small>bpm</small></span>`;
+        metaEl.textContent =
+          `Stress score ${me.score} · ${me.state}` +
+          (me.secondsAgo != null ? ` · synced ${me.secondsAgo}s ago` : '');
+        subEl.textContent = 'You\'re live on the board.';
+      }
+    } catch { /* keep the last render */ }
+  }
+
+  poll();
+  setInterval(poll, 5000);
+})();
+</script>
+</body>
+</html>

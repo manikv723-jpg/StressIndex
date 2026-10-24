@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Stress Index — dashboard</title>
+<style>
+  :root {
+    --ground: #0A130F;
+    --panel: #111E18;
+    --panel-hi: #16281F;
+    --text: #DCE7E0;
+    --muted: #879A8F;
+    --gold: #F6C445;
+    --calm: #35D07F;
+    --meltdown: #FF4438;
+    --whoop: #E8482B;
+    --fitbit: #33C6C6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--ground);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: clamp(16px, 2.5vw, 30px);
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  header { margin-bottom: 22px; }
+  h1 { font-size: 26px; font-weight: 680; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin-top: 5px; }
+
+  h2 {
+    font-size: 11px; font-weight: 720; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+    margin: 26px 0 11px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  h2 .count {
+    background: rgba(135,154,143,0.16); color: var(--text);
+    border-radius: 20px; padding: 1px 7px; font-size: 10.5px;
+  }
+
+  /* ---- cast links ---- */
+  .links { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .link {
+    background: var(--panel);
+    border: 1px solid rgba(135,154,143,0.14);
+    border-radius: 12px;
+    padding: 14px 15px;
+  }
+  .link-t { font-size: 13.5px; font-weight: 640; margin-bottom: 3px; }
+  .link-d { font-size: 11.5px; color: var(--muted); margin-bottom: 10px; }
+  .link-u {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: var(--gold);
+    word-break: break-all; margin-bottom: 10px; line-height: 1.45;
+  }
+  .link-a { display: flex; gap: 7px; }
+
+  button, .btn {
+    font: inherit; font-size: 12.5px; font-weight: 600;
+    border: 0; border-radius: 8px; padding: 8px 12px;
+    cursor: pointer; text-decoration: none; display: inline-block;
+    transition: filter 140ms ease, border-color 140ms ease, color 140ms ease;
+  }
+  .primary { background: var(--gold); color: var(--ground); }
+  .primary:hover { filter: brightness(1.08); }
+  .ghost {
+    background: transparent; color: var(--text);
+    border: 1px solid rgba(135,154,143,0.3);
+  }
+  .ghost:hover { border-color: var(--gold); color: var(--gold); }
+
+  .warn {
+    background: rgba(246,196,69,0.07);
+    border: 1px solid rgba(246,196,69,0.22);
+    border-radius: 10px;
+    padding: 11px 13px;
+    font-size: 12.5px; line-height: 1.6; color: var(--gold);
+    margin-top: 10px;
+  }
+  .warn code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
+
+  /* ---- roster ---- */
+  .friend {
+    background: var(--panel);
+    border: 1px solid rgba(135,154,143,0.12);
+    border-left: 3px solid var(--muted);
+    border-radius: 12px;
+    padding: 13px 15px;
+    margin-bottom: 9px;
+  }
+  .friend.on { border-left-color: var(--calm); }
+  .friend.stale { border-left-color: var(--gold); }
+  .friend.off { border-left-color: rgba(135,154,143,0.4); }
+
+  .f-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .f-who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .f-name { font-size: 16px; font-weight: 640; white-space: nowrap; }
+  .chip {
+    font-size: 8px; font-weight: 780; letter-spacing: 0.09em; text-transform: uppercase;
+    padding: 3px 6px; border-radius: 5px; color: var(--ground); background: var(--muted); flex: none;
+  }
+  .chip[data-device="whoop"] { background: var(--whoop); color: #fff; }
+  .chip[data-device="fitbit"] { background: var(--fitbit); color: #06201F; }
+  .chip[data-device="pending"] {
+    background: transparent; color: var(--muted); border: 1px solid rgba(135,154,143,0.4);
+  }
+  .f-hr { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .f-hr small { font-size: 10.5px; font-weight: 560; color: var(--muted); margin-left: 2px; }
+  .f-hr.none { font-size: 12.5px; font-weight: 560; color: var(--muted); }
+
+  .f-meta {
+    font-size: 11.5px; color: var(--muted); margin-top: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .f-meta .bad { color: var(--gold); }
+  .f-link {
+    display: flex; align-items: center; gap: 7px;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid rgba(135,154,143,0.09);
+  }
+  .f-url {
+    flex: 1; min-width: 0;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 10.5px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .x { background: transparent; color: var(--muted); border: 0; padding: 6px 8px; font-size: 15px; line-height: 1; }
+  .x:hover { color: var(--meltdown); }
+
+  .empty {
+    background: var(--panel);
+    border: 1px dashed rgba(135,154,143,0.22);
+    border-radius: 12px;
+    padding: 28px 20px; text-align: center;
+    color: var(--muted); font-size: 13px; line-height: 1.6;
+  }
+
+  /* ---- form ---- */
+  form { background: var(--panel); border: 1px solid rgba(135,154,143,0.13); border-radius: 13px; padding: 18px; }
+  .field { margin-bottom: 14px; }
+  label {
+    display: block; font-size: 10.5px; font-weight: 720; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
+  }
+  .hint { text-transform: none; letter-spacing: 0; font-weight: 500; opacity: 0.8; }
+  input {
+    width: 100%; font: inherit; font-size: 16px; /* 16px stops iOS zooming on focus */
+    color: var(--text); background: var(--ground);
+    border: 1px solid rgba(135,154,143,0.24); border-radius: 9px; padding: 11px 12px;
+  }
+  input:focus { outline: none; border-color: var(--gold); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .devices { display: flex; gap: 8px; }
+  .devices button {
+    flex: 1; font-size: 13.5px; color: var(--text); background: var(--ground);
+    border: 1px solid rgba(135,154,143,0.24); border-radius: 9px; padding: 11px 10px;
+  }
+  .devices button[aria-pressed="true"] {
+    border-color: var(--gold); background: rgba(246,196,69,0.12); color: var(--gold);
+  }
+  #submit { width: 100%; padding: 12px; font-size: 14.5px; }
+  .msg { font-size: 12.5px; margin-top: 11px; color: var(--meltdown); display: none; }
+  .msg.on { display: block; }
+
+  .tip {
+    font-size: 12.5px; color: var(--muted); line-height: 1.65;
+    background: rgba(246,196,69,0.05);
+    border: 1px solid rgba(246,196,69,0.16);
+    border-radius: 10px; padding: 12px 14px; margin-top: 20px;
+  }
+  .tip b { color: var(--gold); }
+
+  @media (max-width: 560px) {
+    .links { grid-template-columns: 1fr; }
+    .two { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Stress Index</h1>
+    <p class="sub">Everyone who's connected, live. Friends stay here for good — a restart won't lose them.</p>
+  </header>
+
+  <!-- The two links you actually cast/share -->
+  <div class="links">
+    <div class="link">
+      <div class="link-t">Live board</div>
+      <div class="link-d">Cast this to the TV</div>
+      <div class="link-u" id="board-url">…</div>
+      <div class="link-a">
+        <button class="primary" data-copy="board">Copy</button>
+        <a class="btn ghost" href="/" target="_blank" rel="noopener">Open ↗</a>
+      </div>
+    </div>
+    <div class="link">
+      <div class="link-t">Match trends</div>
+      <div class="link-d">Stress over time, per person</div>
+      <div class="link-u" id="trends-url">…</div>
+      <div class="link-a">
+        <button class="primary" data-copy="trends">Copy</button>
+        <a class="btn ghost" href="/trends" target="_blank" rel="noopener">Open ↗</a>
+      </div>
+    </div>
+  </div>
+  <div class="warn" id="lan-warn" hidden>
+    ⚠ These links only work on this wifi. For links that work anywhere, run
+    <code>cloudflared tunnel --url http://localhost:8090</code> then restart with
+    <code>PUBLIC_URL=https://&lt;tunnel&gt; npm start</code>.
+  </div>
+
+  <h2>Connected <span class="count" id="count">0</span></h2>
+  <div id="roster"></div>
+
+  <h2>Add someone</h2>
+  <form id="form">
+    <div class="field">
+      <label for="name">Name</label>
+      <input id="name" name="name" required autocomplete="off" placeholder="Arjun" />
+    </div>
+    <div class="two">
+      <div class="field">
+        <label for="age">Age</label>
+        <input id="age" name="age" type="number" required min="10" max="99" placeholder="28" />
+      </div>
+      <div class="field">
+        <label for="restingHR">Resting HR <span class="hint">(bpm)</span></label>
+        <input id="restingHR" name="restingHR" type="number" required min="30" max="120" placeholder="55" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Device <span class="hint">— link goes straight to their sign-in</span></label>
+      <div class="devices" id="devices" role="group" aria-label="Device">
+        <button type="button" data-provider="fitbit" aria-pressed="true">Fitbit</button>
+        <button type="button" data-provider="whoop_v2" aria-pressed="false">Whoop</button>
+      </div>
+    </div>
+    <button type="submit" id="submit" class="primary">Create link</button>
+    <div class="msg" id="msg"></div>
+  </form>
+
+  <p class="tip">
+    <b>Resting HR matters.</b> Score is heart-rate reserve — how far someone climbed from
+    their <i>own</i> resting HR — so a fit friend and an unfit one compete fairly. A guessed
+    number skews only that person.
+    <br /><br />
+    <b>If someone reads "not syncing"</b>, their watch is fine — their <i>phone</i> hasn't
+    pushed to the cloud. Ask them to open Google Health (or Whoop). At kickoff, everyone
+    should start a <b>workout</b> on their watch: idle watches report every few minutes, a
+    live workout every few seconds.
+  </p>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const rosterEl = document.getElementById('roster');
+  const countEl = document.getElementById('count');
+  const boardUrlEl = document.getElementById('board-url');
+  const trendsUrlEl = document.getElementById('trends-url');
+  const lanWarn = document.getElementById('lan-warn');
+  const form = document.getElementById('form');
+  const submit = document.getElementById('submit');
+  const msg = document.getElementById('msg');
+
+  let urls = { board: '', trends: '' };
+  const esc = (s) => { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; };
+
+  async function copy(btn, text) {
+    const old = btn.textContent;
+    try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied ✓'; }
+    catch { btn.textContent = 'Copy failed'; }
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  }
+
+  document.querySelectorAll('[data-copy]').forEach((b) =>
+    b.addEventListener('click', () => copy(b, urls[b.dataset.copy])));
+
+  // --- roster ---
+  function statusLine(f) {
+    if (!f.connected) return '<span class="bad">waiting for them to connect</span>';
+    // Connected but nothing in our window. Do NOT say "waiting for first reading" —
+    // that implies it's imminent. It usually means their phone stopped pushing to
+    // the cloud hours ago, and the fix is on their side, not ours.
+    if (!f.everSynced) {
+      return `<span class="bad">connected · no reading in the last ${f.windowHours || 6}h — ask them to open their health app</span>`;
+    }
+    const mins = Math.floor(f.secondsAgo / 60);
+    const ago = f.secondsAgo < 90 ? `${f.secondsAgo}s ago`
+      : mins < 90 ? `${mins}m ago`
+      : `${(mins / 60).toFixed(1)}h ago`;
+    // Stale is the single most useful thing on this page: a connected friend whose
+    // phone stopped syncing looks EXACTLY like a broken integration otherwise.
+    return f.stale
+      ? `<span class="bad">not syncing · last reading ${ago} — ask them to open their health app</span>`
+      : `score ${f.score} · synced ${ago}`;
+  }
+
+  function render(data) {
+    urls = { board: data.board, trends: data.trends };
+    boardUrlEl.textContent = data.board;
+    trendsUrlEl.textContent = data.trends;
+    lanWarn.hidden = !data.lanOnly;
+
+    const connected = data.friends.filter((f) => f.connected).length;
+    countEl.textContent = `${connected}/${data.friends.length}`;
+
+    if (!data.friends.length) {
+      rosterEl.innerHTML =
+        `<div class="empty">Nobody yet.<br />Add someone below and send them their link.</div>`;
+      return;
+    }
+
+    rosterEl.innerHTML = data.friends.map((f) => {
+      // Green must mean "actually reporting". A friend who is connected but has
+      // sent nothing is amber, not green — otherwise the one person who won't
+      // show up on the TV looks identical to the ones who will.
+      const cls = !f.connected ? 'off' : (f.stale || !f.everSynced) ? 'stale' : 'on';
+      const hr = f.latestHR == null
+        ? '<span class="f-hr none">— bpm</span>'
+        : `<span class="f-hr">${f.latestHR}<small>bpm</small></span>`;
+      return `
+        <div class="friend ${cls}">
+          <div class="f-top">
+            <div class="f-who">
+              <span class="f-name">${esc(f.name)}</span>
+              <span class="chip" data-device="${esc(f.device)}">${f.device === 'pending' ? 'no device' : esc(f.device)}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              ${hr}
+              <button class="x" data-remove="${esc(f.vitalUserId)}" title="Remove ${esc(f.name)}">×</button>
+            </div>
+          </div>
+          <div class="f-meta">${statusLine(f)} · age ${f.age} · resting ${f.restingHR}</div>
+          ${f.shortUrl ? `
+            <div class="f-link">
+              <span class="f-url">${esc(f.shortUrl)}</span>
+              <button class="ghost" data-copylink="${esc(f.shortUrl)}">Copy link</button>
+            </div>` : ''}
+        </div>`;
+    }).join('');
+
+    rosterEl.querySelectorAll('[data-copylink]').forEach((b) =>
+      b.addEventListener('click', () => copy(b, b.dataset.copylink)));
+    rosterEl.querySelectorAll('[data-remove]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        await fetch(`/api/friends/${encodeURIComponent(b.dataset.remove)}`, { method: 'DELETE' });
+        load();
+      }));
+  }
+
+  async function load() {
+    try {
+      const res = await fetch('/api/friends', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      render(await res.json());
+    } catch (err) {
+      console.warn('[admin] load failed:', err.message); // hold the last render
+    }
+  }
+
+  // --- add ---
+  let provider = 'fitbit';
+  const devicesEl = document.getElementById('devices');
+  devicesEl.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    provider = b.dataset.provider;
+    [...devicesEl.children].forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msg.classList.remove('on');
+    submit.disabled = true;
+    submit.textContent = 'Creating…';
+    try {
+      const res = await fetch('/api/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.value.trim(),
+          age: Number(form.age.value),
+          restingHR: Number(form.restingHR.value),
+          provider,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || 'Request failed');
+      form.reset();
+      form.name.focus();
+      await load();  // new friend appears in the roster above, with their link
+    } catch (err) {
+      msg.textContent = err.message;
+      msg.classList.add('on');
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Create link';
+    }
+  });
+
+  load();
+  setInterval(load, 5000);
+})();
+</script>
+</body>
+</html>

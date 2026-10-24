@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Stress Index — match trends</title>
+<style>
+  .viz-root {
+    color-scheme: dark;
+
+    /* App tokens */
+    --ground: #0A130F;
+    --surface-1: #111E18;      /* chart surface — the palette was validated against THIS */
+    --text-primary: #DCE7E0;
+    --text-secondary: #879A8F;
+    --muted: #879A8F;
+    --gold: #F6C445;
+    --gridline: #1E3229;       /* one shade off the surface, solid hairline */
+    --baseline: #2A4238;
+
+    /* Categorical series — the reference dark palette, in its documented order.
+       Validated against surface #111E18: all 8 pass lightness band, chroma floor,
+       CVD separation (worst adjacent ΔE 8.4), normal-vision floor (19.3), and 3:1
+       contrast. Order is the CVD-safety mechanism — do not resort these. */
+    --series-1: #3987e5;  /* blue */
+    --series-2: #008300;  /* green */
+    --series-3: #d55181;  /* magenta */
+    --series-4: #c98500;  /* yellow */
+    --series-5: #199e70;  /* aqua */
+    --series-6: #d95926;  /* orange */
+    --series-7: #9085e9;  /* violet */
+    --series-8: #e66767;  /* red */
+
+    /* Stress bands — the app's ramp, used ONLY as recessive background zones.
+       These never colour a line: line colour is identity, band colour is the
+       score scale. Kept at very low alpha so they orient without competing. */
+    --band-calm: rgba(53, 208, 127, 0.05);
+    --band-tense: rgba(246, 196, 69, 0.05);
+    --band-stressed: rgba(255, 138, 61, 0.06);
+    --band-meltdown: rgba(255, 68, 56, 0.07);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--ground);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: clamp(16px, 2.5vw, 32px);
+  }
+
+  .wrap { max-width: 1280px; margin: 0 auto; }
+
+  header { margin-bottom: 20px; }
+  h1 { font-size: clamp(20px, 2.2vw, 28px); font-weight: 680; letter-spacing: -0.02em; }
+  .sub {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+    margin-top: 6px;
+  }
+  .sub a { color: var(--gold); }
+
+  /* ---- filter row: ONE row above everything it scopes ---- */
+  .filters {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+  .group {
+    display: inline-flex;
+    background: var(--surface-1);
+    border: 1px solid rgba(135, 154, 143, 0.16);
+    border-radius: 9px;
+    overflow: hidden;
+  }
+  .group button {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 560;
+    color: var(--text-secondary);
+    background: transparent;
+    border: 0;
+    padding: 8px 13px;
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
+  }
+  .group button:hover { color: var(--text-primary); }
+  .group button[aria-pressed="true"] { background: rgba(246, 196, 69, 0.14); color: var(--gold); }
+  .spacer { flex: 1; }
+
+  /* ---- chart card: height grows with content so the x-axis band is never clipped ---- */
+  .card {
+    background: var(--surface-1);
+    border: 1px solid rgba(135, 154, 143, 0.12);
+    border-radius: 14px;
+    padding: 18px clamp(12px, 1.6vw, 22px) 14px;
+  }
+
+  .chart-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .chart-title { font-size: 14px; font-weight: 620; }
+  .chart-note { font-size: 12px; color: var(--muted); }
+
+  .plot-wrap { position: relative; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  .grid line { stroke: var(--gridline); stroke-width: 1; }       /* solid hairline, never dashed */
+  .axis line { stroke: var(--baseline); stroke-width: 1; }
+  .tick {
+    fill: var(--muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;                          /* ticks align vertically */
+  }
+  .band-label {
+    fill: var(--muted);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    opacity: 0.55;
+  }
+  .series-line {
+    fill: none;
+    stroke-width: 2;                                             /* thin marks */
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  .series-line.dim { opacity: 0.16; }
+  .end-label {
+    font-size: 11px;
+    font-weight: 640;
+    paint-order: stroke;
+    stroke: var(--surface-1);
+    stroke-width: 3px;                                           /* surface ring, not a border */
+  }
+  .crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0.5; }
+  .hover-dot { stroke: var(--surface-1); stroke-width: 2; }      /* 2px surface ring on overlap */
+
+  /* ---- legend: always present for >=2 series ---- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(135, 154, 143, 0.1);
+  }
+  .legend button {
+    font: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    background: none;
+    border: 0;
+    padding: 4px 2px;
+    cursor: pointer;
+    min-height: 24px;                                            /* >=24px hit target */
+  }
+  .legend button[aria-pressed="false"] { opacity: 0.4; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .legend .lname { color: var(--text-primary); font-weight: 560; }
+  .legend .lval { font-variant-numeric: tabular-nums; }
+
+  /* ---- tooltip ---- */
+  .tip {
+    position: absolute;
+    pointer-events: none;
+    background: #0B1611;
+    border: 1px solid rgba(135, 154, 143, 0.24);
+    border-radius: 9px;
+    padding: 9px 11px;
+    font-size: 12px;
+    min-width: 130px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 120ms ease;
+    z-index: 5;
+  }
+  .tip.on { opacity: 1; }
+  .tip-t {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tip-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .tip-row .swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .tip-row .n { flex: 1; color: var(--text-secondary); }
+  .tip-row .v { color: var(--text-primary); font-weight: 620; }
+
+  /* ---- table view (the WCAG-clean twin — every value reachable without hover) ---- */
+  #table-wrap { margin-top: 16px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td {
+    text-align: right;
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(135, 154, 143, 0.1);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  th { color: var(--muted); font-weight: 640; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; }
+  td:first-child, th:first-child { text-align: left; }
+  .tname { display: inline-flex; align-items: center; gap: 7px; }
+  .tname .swatch { width: 9px; height: 9px; border-radius: 2px; }
+
+  .empty {
+    text-align: center;
+    padding: 70px 20px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .empty a { color: var(--gold); }
+
+  [hidden] { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body class="viz-root">
+<div class="wrap">
+  <header>
+    <h1>Match trends</h1>
+    <p class="sub">
+      Stress over the match, per person. Score is heart-rate reserve, so lines are
+      comparable across fitness levels — raw bpm is not. <a href="/">Live board →</a>
+    </p>
+  </header>
+
+  <!-- one filter row, scoping everything below it -->
+  <div class="filters">
+    <div class="group" id="range" role="group" aria-label="Time range">
+      <button data-min="30">30m</button>
+      <button data-min="60">1h</button>
+      <button data-min="120" aria-pressed="true">2h</button>
+      <button data-min="360">6h</button>
+    </div>
+    <div class="group" id="metric" role="group" aria-label="Metric">
+      <button data-metric="score" aria-pressed="true">Stress score</button>
+      <button data-metric="hr">Heart rate</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group">
+      <button id="toggle-table" aria-pressed="false">Table view</button>
+    </div>
+  </div>
+
+  <div class="card" id="card" hidden>
+    <div class="chart-head">
+      <span class="chart-title" id="chart-title">Stress score over time</span>
+      <span class="chart-note" id="chart-note"></span>
+    </div>
+    <div class="plot-wrap" id="plot-wrap">
+      <svg id="chart" role="img" aria-label="Stress over time, one line per person"></svg>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div id="table-wrap" hidden></div>
+  </div>
+
+  <div class="empty" id="empty">
+    No readings yet.<br />
+    Register someone at <a href="/admin">/admin</a>, or run the demo with
+    <code>DEMO_MODE=true npm start</code>.
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const PALETTE = ['#3987e5','#008300','#d55181','#c98500','#199e70','#d95926','#9085e9','#e66767'];
+  // Colour follows the entity: the server hands each friend a stable colorIndex at
+  // registration, so filtering or a friend going quiet never repaints the others.
+  const colorFor = (f) => PALETTE[(f.colorIndex ?? 0) % PALETTE.length];
+
+  // Score bands mirror the server's stressState() exactly — if those move, move these.
+  const BANDS = [
+    { from: 0,  to: 30,  label: 'CALM',     fill: 'var(--band-calm)' },
+    { from: 30, to: 55,  label: 'TENSE',    fill: 'var(--band-tense)' },
+    { from: 55, to: 78,  label: 'STRESSED', fill: 'var(--band-stressed)' },
+    { from: 78, to: 100, label: 'MELTDOWN', fill: 'var(--band-meltdown)' },
+  ];
+
+  const svg = document.getElementById('chart');
+  const tip = document.getElementById('tip');
+  const plotWrap = document.getElementById('plot-wrap');
+  const legendEl = document.getElementById('legend');
+  const cardEl = document.getElementById('card');
+  const emptyEl = document.getElementById('empty');
+  const tableWrap = document.getElementById('table-wrap');
+  const titleEl = document.getElementById('chart-title');
+  const noteEl = document.getElementById('chart-note');
+
+  let minutes = 120;
+  let metric = 'score';
+  let data = null;
+  const hidden = new Set();   // legend toggles
+  let layout = null;          // geometry cached for hover hit-testing
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (n, attrs = {}) => {
+    const e = document.createElementNS(NS, n);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+  };
+  const fmtTime = (t) =>
+    new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  /**
+   * Tick format has to follow the span, not the nominal window. A 2h match wants
+   * HH:MM, but a 3-minute span rendered at HH:MM prints "00:31, 00:31, 00:32,
+   * 00:33, 00:33" — duplicate ticks that imply the axis is broken.
+   */
+  const fmtTick = (t, spanMs) =>
+    new Date(t).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      ...(spanMs < 15 * 60_000 ? { second: '2-digit' } : {}),
+    });
+  const esc = (s) => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+
+  // ---------- render ----------
+  function render() {
+    svg.replaceChildren();
+    // Drop any open tooltip: it holds values from the PREVIOUS metric/range, and a
+    // stale "46" left over from the score axis reads as a heart rate of 46bpm.
+    tip.classList.remove('on');
+    if (!data || !data.friends.length) {
+      cardEl.hidden = true;
+      emptyEl.hidden = false;
+      return;
+    }
+    cardEl.hidden = false;
+    emptyEl.hidden = true;
+
+    const shown = data.friends.filter((f) => !hidden.has(f.name) && f.points.length);
+
+    // Geometry.
+    //
+    // The viewBox is matched to the container's REAL CSS pixel width, so 1 SVG unit
+    // = 1 CSS px and text renders at its nominal size. A fixed viewBox (say 1000)
+    // scaled into a 390px phone would shrink every 10px tick to ~4px — legible on
+    // the desktop mock, unreadable on the device it was drawn for.
+    const W = Math.max(320, Math.round(plotWrap.clientWidth || 1000));
+    const narrow = W < 620;
+    const PLOT_H = narrow ? 260 : 340;
+    // Height INCLUDES the x-axis band — sizing the box to the plot alone is what
+    // gives a card its own tiny nested scrollbar.
+    const M = narrow
+      ? { top: 12, right: 54, bottom: 28, left: 30 }
+      : { top: 14, right: 74, bottom: 30, left: 42 }; // right leaves room for end labels
+    const H = PLOT_H + M.top + M.bottom;
+    const iw = W - M.left - M.right;
+    const ih = PLOT_H;
+
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.setAttribute('height', H); // pin height so the card can't collapse the plot
+
+    // Domain = the DATA's extent, not the filter window. The range control picks
+    // which points are included; it must not also stretch the axis over hours of
+    // emptiness. Two reasons this matters here: a 30m window with 3m of data
+    // squashes everything into a right-hand sliver, and the provider's 3-6 min lag
+    // means `now` would leave a permanent dead gap at the right edge on every chart.
+    const allT = shown.flatMap((f) => f.points.map((p) => p.t));
+    const t0 = allT.length ? Math.min(...allT) : data.since;
+    const t1 = allT.length ? Math.max(...allT) : data.now;
+    const span = Math.max(60_000, t1 - t0); // floor so a single point isn't /0
+    const x = (t) => M.left + ((t - t0) / span) * iw;
+
+    // One axis. Score is fixed 0-100; bpm scales to the data with a little padding.
+    let yMin = 0, yMax = 100;
+    if (metric === 'hr') {
+      const vals = shown.flatMap((f) => f.points.map((p) => p.hr));
+      if (vals.length) {
+        yMin = Math.max(0, Math.floor((Math.min(...vals) - 6) / 5) * 5);
+        yMax = Math.ceil((Math.max(...vals) + 6) / 5) * 5;
+      } else { yMin = 40; yMax = 160; }
+    }
+    const y = (v) => M.top + ih - ((v - yMin) / Math.max(1, yMax - yMin)) * ih;
+
+    layout = { x, y, t0, t1, M, iw, ih, shown };
+
+    // --- stress bands (score axis only — they encode the score scale, not identity) ---
+    if (metric === 'score') {
+      const g = el('g');
+      for (const b of BANDS) {
+        const yTop = y(b.to), yBot = y(b.from);
+        g.appendChild(el('rect', { x: M.left, y: yTop, width: iw, height: yBot - yTop, fill: b.fill }));
+        const t = el('text', { x: M.left + 6, y: yTop + 12, class: 'band-label' });
+        t.textContent = b.label;
+        g.appendChild(t);
+      }
+      svg.appendChild(g);
+    }
+
+    // --- gridlines + y ticks (solid hairlines, recessive) ---
+    const grid = el('g', { class: 'grid' });
+    const yTicks = metric === 'score' ? [0, 25, 50, 75, 100] : niceTicks(yMin, yMax, 5);
+    for (const v of yTicks) {
+      grid.appendChild(el('line', { x1: M.left, x2: M.left + iw, y1: y(v), y2: y(v) }));
+      const t = el('text', { x: M.left - 8, y: y(v) + 3.5, class: 'tick', 'text-anchor': 'end' });
+      t.textContent = v;
+      grid.appendChild(t);
+    }
+    svg.appendChild(grid);
+
+    // --- x axis ---
+    const axis = el('g', { class: 'axis' });
+    axis.appendChild(el('line', { x1: M.left, x2: M.left + iw, y1: M.top + ih, y2: M.top + ih }));
+    const steps = narrow ? 3 : 6; // 7 timestamps collide on a phone
+    for (let i = 0; i <= steps; i++) {
+      const t = t0 + ((t1 - t0) * i) / steps;
+      const tx = el('text', { x: x(t), y: M.top + ih + 16, class: 'tick', 'text-anchor': 'middle' });
+      tx.textContent = fmtTick(t, span);
+      axis.appendChild(tx);
+    }
+    svg.appendChild(axis);
+
+    // --- series ---
+    const linesG = el('g');
+    const endLabels = [];
+    for (const f of shown) {
+      const pts = f.points.filter((p) => p.t >= t0);
+      if (!pts.length) continue;
+      const d = pts
+        .map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(metric === 'score' ? p.score : p.hr).toFixed(1)}`)
+        .join(' ');
+      linesG.appendChild(el('path', { d, class: 'series-line', stroke: colorFor(f) }));
+
+      // Direct-label the ENDPOINT only — a value on every point is unreadable.
+      // Collect first, place after: six friends who all end up near the same score
+      // would otherwise stack their labels into an unreadable pile.
+      const last = pts[pts.length - 1];
+      endLabels.push({
+        name: f.name,
+        color: colorFor(f),
+        yWant: y(metric === 'score' ? last.score : last.hr),
+        x: x(last.t) + 8,
+      });
+    }
+
+    // De-collide: sort by desired y, then walk down pushing each label below the
+    // previous one's minimum spacing. Keeps every label readable and still near
+    // its line, instead of dropping labels or letting them overlap.
+    const LINE_H = 13;
+    endLabels.sort((a, b) => a.yWant - b.yWant);
+    let prev = -Infinity;
+    for (const L of endLabels) {
+      L.y = Math.max(L.yWant, prev + LINE_H);
+      prev = L.y;
+    }
+    // If the stack overflowed the plot bottom, push the whole run back up.
+    const overflow = prev - (M.top + ih);
+    if (overflow > 0) for (const L of endLabels) L.y -= overflow;
+
+    for (const L of endLabels) {
+      const lbl = el('text', { x: L.x, y: L.y + 4, class: 'end-label', fill: L.color });
+      lbl.textContent = L.name;
+      linesG.appendChild(lbl);
+    }
+    svg.appendChild(linesG);
+
+    // --- hover layer ---
+    const hover = el('g');
+    const cross = el('line', { class: 'crosshair', y1: M.top, y2: M.top + ih, opacity: 0 });
+    hover.appendChild(cross);
+    const dots = el('g');
+    hover.appendChild(dots);
+    svg.appendChild(hover);
+    // Transparent capture rect — hit area is the whole plot, so there are no
+    // pinpoint targets to chase.
+    const capture = el('rect', {
+      x: M.left, y: M.top, width: iw, height: ih, fill: 'transparent', style: 'cursor: crosshair',
+    });
+    svg.appendChild(capture);
+    wireHover(capture, cross, dots);
+
+    // Say how stale the newest sample is — on the cloud path it's minutes behind,
+    // and a chart that silently ends 5 minutes ago looks identical to a live one.
+    const lagMin = Math.round((data.now - t1) / 60000);
+    noteEl.textContent =
+      `${shown.length} of ${data.friends.length} shown · ${fmtTime(t0)}–${fmtTime(t1)}` +
+      (lagMin >= 2 ? ` · newest sample ${lagMin}m old` : '');
+    titleEl.textContent = metric === 'score' ? 'Stress score over time' : 'Heart rate over time';
+
+    renderLegend();
+    renderTable();
+  }
+
+  function niceTicks(min, max, n) {
+    const step = Math.max(1, Math.round((max - min) / n / 5) * 5);
+    const out = [];
+    for (let v = min; v <= max; v += step) out.push(v);
+    return out;
+  }
+
+  // ---------- hover ----------
+  function wireHover(capture, cross, dots) {
+    const move = (evt) => {
+      if (!layout) return;
+      const pt = svg.getBoundingClientRect();
+      const vb = svg.viewBox.baseVal;
+      const sx = ((evt.clientX - pt.left) / pt.width) * vb.width;
+      const t = layout.t0 + ((sx - layout.M.left) / layout.iw) * (layout.t1 - layout.t0);
+
+      cross.setAttribute('x1', sx);
+      cross.setAttribute('x2', sx);
+      cross.setAttribute('opacity', 1);
+      dots.replaceChildren();
+
+      const rows = [];
+      for (const f of layout.shown) {
+        const p = nearest(f.points, t);
+        if (!p) continue;
+        const v = metric === 'score' ? p.score : p.hr;
+        dots.appendChild(el('circle', {
+          cx: layout.x(p.t), cy: layout.y(v), r: 4, fill: colorFor(f), class: 'hover-dot',
+        }));
+        rows.push({ f, p, v });
+      }
+      if (!rows.length) return;
+      rows.sort((a, b) => b.v - a.v);
+
+      tip.innerHTML =
+        `<div class="tip-t">${fmtTime(rows[0].p.t)}</div>` +
+        rows.map((r) => `
+          <div class="tip-row">
+            <span class="swatch" style="background:${colorFor(r.f)}"></span>
+            <span class="n">${esc(r.f.name)}</span>
+            <span class="v">${metric === 'score' ? r.v : r.v + ' bpm'}</span>
+          </div>`).join('');
+      tip.classList.add('on');
+
+      // Flip the tooltip before it runs off the right edge.
+      const wrapW = plotWrap.clientWidth;
+      const px = (sx / vb.width) * wrapW;
+      const tw = tip.offsetWidth;
+      tip.style.left = (px + tw + 20 > wrapW ? px - tw - 12 : px + 12) + 'px';
+      tip.style.top = '8px';
+    };
+
+    capture.addEventListener('mousemove', move);
+    capture.addEventListener('mouseleave', () => {
+      tip.classList.remove('on');
+      cross.setAttribute('opacity', 0);
+      dots.replaceChildren();
+    });
+    // Touch: same handler, so a phone gets the same readout as a mouse.
+    capture.addEventListener('touchmove', (e) => {
+      if (e.touches[0]) move(e.touches[0]);
+    }, { passive: true });
+  }
+
+  function nearest(points, t) {
+    if (!points.length) return null;
+    let best = null, bestD = Infinity;
+    for (const p of points) {
+      const d = Math.abs(p.t - t);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    // Don't invent a reading from far-away data — a gap should read as a gap.
+    return bestD > 5 * 60_000 ? null : best;
+  }
+
+  // ---------- legend ----------
+  function renderLegend() {
+    legendEl.replaceChildren();
+    for (const f of data.friends) {
+      const on = !hidden.has(f.name);
+      const last = f.points[f.points.length - 1];
+      const b = document.createElement('button');
+      b.setAttribute('aria-pressed', String(on));
+      b.innerHTML =
+        `<span class="swatch" style="background:${colorFor(f)}"></span>` +
+        `<span class="lname">${esc(f.name)}</span>` +
+        `<span class="lval">${last ? (metric === 'score' ? last.score : last.hr + ' bpm') : '—'}</span>`;
+      b.addEventListener('click', () => {
+        hidden.has(f.name) ? hidden.delete(f.name) : hidden.add(f.name);
+        render();
+      });
+      legendEl.appendChild(b);
+    }
+  }
+
+  // ---------- table view ----------
+  function renderTable() {
+    const rows = data.friends.map((f) => {
+      const pts = f.points;
+      const scores = pts.map((p) => p.score);
+      const hrs = pts.map((p) => p.hr);
+      const peakI = scores.length ? scores.indexOf(Math.max(...scores)) : -1;
+      return {
+        f,
+        n: pts.length,
+        avgHR: hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null,
+        maxHR: hrs.length ? Math.max(...hrs) : null,
+        avgScore: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
+        maxScore: scores.length ? Math.max(...scores) : null,
+        peakAt: peakI >= 0 ? pts[peakI].t : null,
+      };
+    }).sort((a, b) => (b.maxScore ?? -1) - (a.maxScore ?? -1));
+
+    tableWrap.innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Person</th><th>Avg score</th><th>Peak score</th>
+          <th>Peak at</th><th>Avg bpm</th><th>Max bpm</th><th>Samples</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map((r) => `
+            <tr>
+              <td><span class="tname"><span class="swatch" style="background:${colorFor(r.f)}"></span>${esc(r.f.name)}</span></td>
+              <td>${r.avgScore ?? '—'}</td>
+              <td>${r.maxScore ?? '—'}</td>
+              <td>${r.peakAt ? fmtTime(r.peakAt) : '—'}</td>
+              <td>${r.avgHR ?? '—'}</td>
+              <td>${r.maxHR ?? '—'}</td>
+              <td>${r.n}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  // ---------- data ----------
+  async function load() {
+    try {
+      const res = await fetch(`/api/history?minutes=${minutes}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      data = await res.json();
+      render();
+    } catch (err) {
+      console.warn('[trends] load failed:', err.message);
+      // Hold the previous render rather than flashing an empty state.
+    }
+  }
+
+  // ---------- filters ----------
+  document.getElementById('range').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    minutes = Number(b.dataset.min);
+    [...e.currentTarget.children].forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
+    load();
+  });
+
+  document.getElementById('metric').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    metric = b.dataset.metric;
+    [...e.currentTarget.children].forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
+    render();
+  });
+
+  const tblBtn = document.getElementById('toggle-table');
+  tblBtn.addEventListener('click', () => {
+    const on = tblBtn.getAttribute('aria-pressed') === 'true';
+    tblBtn.setAttribute('aria-pressed', String(!on));
+    tableWrap.hidden = on;
+  });
+
+  addEventListener('resize', () => data && render());
+
+  load();
+  setInterval(load, 30_000); // trends move slowly; 4s polling would be pointless here
+})();
+</script>
+</body>
+</html>

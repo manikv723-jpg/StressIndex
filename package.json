@@ -1,0 +1,25 @@
+{
+  "name": "stress-index",
+  "version": "1.0.0",
+  "description": "Live-ish leaderboard ranking friends by match-day stress, from their wearables via Junction (formerly Vital).",
+  "type": "module",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "demo": "DEMO_MODE=true node server/index.js",
+    "mock-webhook": "node scripts/mock-webhook.js",
+    "demo-connect": "node scripts/demo-connect.js",
+    "resync": "node scripts/resync.js"
+  },
+  "dependencies": {
+    "@junction-api/sdk": "^1.2.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "svix": "^1.97.0"
+  }
+}

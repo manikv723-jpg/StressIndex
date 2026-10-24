@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+.DS_Store
+npm-debug.log*
+.data/
+
+# Internal docs (not part of the public repo)
+AGENTS.md
+AGENTS.docx
+AGENTS.pdf
+BRIEF.md
+BRIEF.docx
+BRIEF.pdf
+guide/
